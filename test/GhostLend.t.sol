@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {GhostLend} from "src/GhostLend.sol";
+import {OracleLib} from "src/libraries/OracleLib.sol";
 import {MockV3Aggregator} from "test/mocks/MockV3Aggregator.sol";
 import {MockERC20} from "test/mocks/MockERC20.sol";
 
@@ -392,7 +393,28 @@ contract GhostLendTest is Test {
     }
 
     /*//////////////////////////////////////////////////////////////
-                            ORACLE EDGE CASES
+                           ORACLE STALENESS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_RevertWhen_OraclePriceIsStale() external {
+        vm.warp(block.timestamp + 3 hours + 1);
+        vm.expectRevert(OracleLib.OracleLib__StalePrice.selector);
+        ghostLend.getUsdValue(address(weth), 1 ether);
+    }
+
+    function test_RevertWhen_OracleRoundIncomplete() external {
+        ethPriceFeed.updateRoundData(2, ETH_USD_PRICE, block.timestamp, 1);
+        vm.expectRevert(OracleLib.OracleLib__StalePrice.selector);
+        ghostLend.getUsdValue(address(weth), 1 ether);
+    }
+
+    function test_OracleAcceptsFreshPrice() external {
+        ethPriceFeed.updateRoundData(2, ETH_USD_PRICE, block.timestamp, 2);
+        assertEq(ghostLend.getUsdValue(address(weth), 1 ether), 2000e18);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                             ORACLE EDGE CASES
     //////////////////////////////////////////////////////////////*/
 
     function test_HealthFactorChangesWithPrice() external {

@@ -6,6 +6,9 @@ import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interf
 /// @notice Chainlink oracle helper that validates price feed responses.
 library OracleLib {
     error OracleLib__InvalidPrice();
+    error OracleLib__StalePrice();
+
+    uint256 private constant MAX_HEARTBEAT = 3 hours;
 
     function staleCheckLatestRoundData(AggregatorV3Interface priceFeed)
         internal
@@ -16,6 +19,12 @@ library OracleLib {
             priceFeed.latestRoundData();
         if (answer <= 0) {
             revert OracleLib__InvalidPrice();
+        }
+        if (answeredInRound < roundId) {
+            revert OracleLib__StalePrice();
+        }
+        if (block.timestamp - updatedAt > MAX_HEARTBEAT) {
+            revert OracleLib__StalePrice();
         }
         return (roundId, answer, startedAt, updatedAt, answeredInRound);
     }
