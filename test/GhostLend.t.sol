@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity 0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {GhostLend} from "src/GhostLend.sol";
+import {OracleLib} from "src/libraries/OracleLib.sol";
+import {ReentrancyGuard} from "src/utils/ReentrancyGuard.sol";
 import {MockV3Aggregator} from "test/mocks/MockV3Aggregator.sol";
 import {MockERC20} from "test/mocks/MockERC20.sol";
+import {CallbackMockERC20, ReentrantAttacker} from "test/mocks/ReentrantAttacker.sol";
 
 contract GhostLendTest is Test {
     GhostLend ghostLend;
@@ -337,7 +340,41 @@ contract GhostLendTest is Test {
     }
 
     /*//////////////////////////////////////////////////////////////
-                            VIEW FUNCTIONS
+                           REENTRANCY GUARD
+    //////////////////////////////////////////////////////////////*/
+
+    function test_RevertWhen_ReentrantCall() external {
+        MockV3Aggregator callbackTokenPriceFeed = new MockV3Aggregator(8, USDC_USD_PRICE);
+        CallbackMockERC20 callbackToken = new CallbackMockERC20("Callback USD", "cUSD", 6);
+
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(callbackToken);
+
+        address[] memory priceFeeds = new address[](1);
+        priceFeeds[0] = address(callbackTokenPriceFeed);
+
+        GhostLend localGhostLend = new GhostLend(tokens, priceFeeds);
+
+        callbackToken.mint(DEPOSITOR, 1_000_000e6);
+        vm.startPrank(DEPOSITOR);
+        callbackToken.approve(address(localGhostLend), type(uint256).max);
+        localGhostLend.depositCollateral(address(callbackToken), 1_000_000e6);
+        vm.stopPrank();
+
+        ReentrantAttacker attacker = new ReentrantAttacker(address(localGhostLend), address(callbackToken));
+
+        callbackToken.mint(address(attacker), 20_000e6);
+        vm.startPrank(address(attacker));
+        callbackToken.approve(address(localGhostLend), type(uint256).max);
+        localGhostLend.depositCollateral(address(callbackToken), 20_000e6);
+        vm.stopPrank();
+
+        vm.expectRevert(ReentrancyGuard.ReentrancyGuard__ReentrantCall.selector);
+        attacker.attackBorrow(10_000e6);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                             VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
     function test_HealthFactorMaxWhenNoBorrows() external {
@@ -392,7 +429,28 @@ contract GhostLendTest is Test {
     }
 
     /*//////////////////////////////////////////////////////////////
-                            ORACLE EDGE CASES
+                           ORACLE STALENESS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_RevertWhen_OraclePriceIsStale() external {
+        vm.warp(block.timestamp + 3 hours + 1);
+        vm.expectRevert(OracleLib.OracleLib__StalePrice.selector);
+        ghostLend.getUsdValue(address(weth), 1 ether);
+    }
+
+    function test_RevertWhen_OracleRoundIncomplete() external {
+        ethPriceFeed.updateRoundData(2, ETH_USD_PRICE, block.timestamp, 1);
+        vm.expectRevert(OracleLib.OracleLib__StalePrice.selector);
+        ghostLend.getUsdValue(address(weth), 1 ether);
+    }
+
+    function test_OracleAcceptsFreshPrice() external {
+        ethPriceFeed.updateRoundData(2, ETH_USD_PRICE, block.timestamp, 2);
+        assertEq(ghostLend.getUsdValue(address(weth), 1 ether), 2000e18);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                             ORACLE EDGE CASES
     //////////////////////////////////////////////////////////////*/
 
     function test_HealthFactorChangesWithPrice() external {
