@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.34;
 
 /// @notice Gas-efficient reentrancy guard using transient storage (EIP-1153).
 /// @dev Uses transient storage so the lock is automatically cleared at the end
@@ -15,6 +15,6 @@ abstract contract ReentrancyGuard {
         }
         _locked = 1;
         _;
-        delete _locked;
+        _locked = 0;
     }
 }
