@@ -45,6 +45,7 @@ contract GhostLend is ReentrancyGuard {
     /*//////////////////////////////////////////////////////////////
                                 EVENTS
     //////////////////////////////////////////////////////////////*/
+    event TokenAdded(address indexed token, address indexed priceFeed);
     event CollateralDeposited(address indexed user, address indexed token, uint256 amount);
     event CollateralWithdrawn(address indexed user, address indexed token, uint256 amount);
     event Borrowed(address indexed user, address indexed token, uint256 amount);
@@ -106,6 +107,17 @@ contract GhostLend is ReentrancyGuard {
     /*//////////////////////////////////////////////////////////////
                     USER-FACING STATE-CHANGING FUNCTIONS
     //////////////////////////////////////////////////////////////*/
+
+    /// @notice Register a new token for use as collateral or borrowing.
+    function addSupportedToken(address token, address priceFeed) external {
+        s_tokenConfigs[token] = TokenConfig({
+            priceFeed: priceFeed,
+            tokenDecimals: IERC20Metadata(token).decimals(),
+            feedDecimals: AggregatorV3Interface(priceFeed).decimals()
+        });
+        s_supportedTokens.push(token);
+        emit TokenAdded(token, priceFeed);
+    }
 
     /// @notice Deposit ERC20 tokens as collateral.
     function depositCollateral(address token, uint256 amount)
